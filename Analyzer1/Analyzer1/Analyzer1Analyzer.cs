@@ -45,7 +45,7 @@ namespace JsonExampleAnalyzer
         private static void AnalyzeSymbol(SyntaxNodeAnalysisContext context)
         {
             var node = context.Node as ClassDeclarationSyntax;
-
+            var location = node.Identifier.GetLocation();
             if (!node.Modifiers.Any(a => a.IsKind(SyntaxKind.PublicKeyword)))
             {
                 return;
@@ -67,7 +67,7 @@ namespace JsonExampleAnalyzer
             var example = xmlNodes.FirstOrDefault(a => a.StartTag.Name.LocalName.ValueText == "example");
             if (example == null)
             {
-                context.ReportDiagnostic(Diagnostic.Create(_exampleMissingRule, node.GetLocation(), node.Identifier.ValueText));
+                context.ReportDiagnostic(Diagnostic.Create(_exampleMissingRule, location, node.Identifier.ValueText));
                 return;
             }
 
@@ -75,13 +75,13 @@ namespace JsonExampleAnalyzer
             var code = exampleChildren.FirstOrDefault(a => a.StartTag.Name.LocalName.ValueText == "code");
             if (code == null)
             {
-                context.ReportDiagnostic(Diagnostic.Create(_codeMissingRule, node.GetLocation(), node.Identifier.ValueText));
+                context.ReportDiagnostic(Diagnostic.Create(_codeMissingRule, location, node.Identifier.ValueText));
                 return;
             }
 
             if (!(code.StartTag.Attributes.FirstOrDefault(a => a.Name.LocalName.ValueText == "class") is XmlTextAttributeSyntax lang))
             {
-                context.ReportDiagnostic(Diagnostic.Create(_codeMissingClassRule, node.GetLocation(), node.Identifier.ValueText));
+                context.ReportDiagnostic(Diagnostic.Create(_codeMissingClassRule, location, node.Identifier.ValueText));
                 return;
             }
 
@@ -89,7 +89,7 @@ namespace JsonExampleAnalyzer
 
             if (langType != "javascript")
             {
-                context.ReportDiagnostic(Diagnostic.Create(_incorrectClassRule, node.GetLocation(), node.Identifier.ValueText, langType));
+                context.ReportDiagnostic(Diagnostic.Create(_incorrectClassRule, location, node.Identifier.ValueText, langType));
                 return;
             }
 
@@ -103,26 +103,47 @@ namespace JsonExampleAnalyzer
             }
             catch (JsonException ex)
             {
-                context.ReportDiagnostic(Diagnostic.Create(_jsonExampleParsingFailureRule, node.GetLocation(), node.Identifier.ValueText, ex.Message));
+                context.ReportDiagnostic(Diagnostic.Create(_jsonExampleParsingFailureRule, location, node.Identifier.ValueText, ex.Message));
                 return;
             }
 
-            //var members = namedTypeSymbol.GetMembers().OfType<IPropertySymbol>();
-            //foreach (var member in members)
-            //{
-            //    if (!json.RootElement.TryGetProperty(member.Name, out _))
-            //    {
-            //        context.ReportDiagnostic(Diagnostic.Create(_jsonPropertyMissingRule, member.Locations[0], namedTypeSymbol.Name, member.Name));
-            //    }
-            //}
+            var childNodes = node.ChildNodes().OfType<PropertyDeclarationSyntax>()
+                .Where(prop => prop.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PublicKeyword))).ToList();
 
-            //foreach (var jsonProperty in json.RootElement.EnumerateObject())
-            //{
-            //    if (!members.All(a => a.Name != jsonProperty.Name))
-            //    {
-            //        context.ReportDiagnostic(Diagnostic.Create(_extraJsonPropertyRule, namedTypeSymbol.Locations[0], namedTypeSymbol.Name, jsonProperty.Name));
-            //    }
-            //}
+            foreach (var member in childNodes)
+            {
+                if (member.AttributeLists.SelectMany(a => a.Attributes).Select(a => a.Name).OfType<IdentifierNameSyntax>().Any(attrib => attrib.Identifier.Text == "Obsolete"))
+                {
+                    continue;
+                }
+
+                if (!json.TryGetValue(member.Identifier.ValueText, out _))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(_jsonPropertyMissingRule, member.Identifier.GetLocation(), node.Identifier.ValueText, member.Identifier.ValueText));
+                }
+            }
+
+            foreach (var jsonProperty in json.Properties())
+            {
+                if (childNodes.Any(prop => prop.Identifier.ValueText == jsonProperty.Name && prop.AttributeLists.SelectMany(a => a.Attributes)
+                    .Select(a => a.Name).OfType<IdentifierNameSyntax>().Any(attrib => attrib.Identifier.Text == "Obsolete")))
+                {
+                    continue;
+                }
+
+                if (childNodes.All(a => a.Identifier.ValueText != jsonProperty.Name))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(_extraJsonPropertyRule, location, node.Identifier.ValueText, jsonProperty.Name));
+                }
+
+                var member = childNodes.SingleOrDefault(a => a.Identifier.Text == jsonProperty.Name);
+                if(member == null)
+                {
+                    continue;
+                }
+
+                var thing = 1 + 1;
+            }
 
         }
     }
